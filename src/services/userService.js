@@ -4,7 +4,7 @@ const { sendEmail } = require("../utils/email");
 
 async function getUserLoginService(userId) {
   return db("Users")
-    .select("id", "username", "created_at", "updated_at")
+    .select("id", "username", "email","created_at", "updated_at")
     .where({ id: userId })
     .first();
 }
@@ -12,7 +12,7 @@ async function updateUserService(userId, data) {
   const updateData = {
     updated_at: new Date(),
   };
-  if (data.username) {
+  if (data.username) {  
     updateData.username = data.username;
   }
   if (data.email) {
@@ -29,20 +29,16 @@ async function updateUserService(userId, data) {
 async function changePasswordService(userId, oldPassword, newPassword) {
   const user = await db("Users").where({ id: userId }).first();
   if (!user) return null;
-
   const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
   if (!isMatch) {
     throw new Error("Mật khẩu cũ không chính xác");
   }
-
   const salt = await bcrypt.genSalt(10);
   const newHash = await bcrypt.hash(newPassword, salt);
-
   const [updatedUser] = await db("Users")
     .where({ id: userId })
     .update({ password_hash: newHash, updated_at: new Date() })
     .returning(["id", "username", "email", "created_at", "updated_at"]);
-
   return updatedUser;
 }
 
@@ -79,7 +75,7 @@ async function resetPasswordService(email, resetCode, newPassword) {
     .where({ id: user.id })
     .update({ password_hash: newHash, reset_code: null, updated_at: new Date() });
 
-  return true;
+  return true;  
 } 
 module.exports = {
   getUserLoginService,
