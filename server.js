@@ -1,22 +1,33 @@
 const fastify = require("fastify")({logger: true});
 require("dotenv").config();
-
+const path = require('path');
 async function startServer() {
   // Đăng ký plugins TRƯỚC khi đăng ký routers
   await fastify.register(require("./src/plugins/authPlugins"));
   // Middleware body parser đã tích hợp sẵn trong Fastify
+  await fastify.register(require('@fastify/multipart'), {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+    }
+  });
   await fastify.register(require("@fastify/cors"), {
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   });
+  await fastify.register(require('@fastify/static'), {
+  root: path.join(__dirname, 'public'),
+  prefix: '/', // URL prefix
+});
   // routers
   const authRouter = require("./src/routers/authRouter");
   const todoRouter = require("./src/routers/todosRouter");
   const userRouter = require("./src/routers/userRouter");
+  const todoHistoryRouter  = require("./src/routers/todoHistoryRouter");
   // Đăng ký router (plugin)
   await fastify.register(authRouter, { prefix: "/api/auth" });
   await fastify.register(todoRouter, { prefix: "/api/todos" });
   await fastify.register(userRouter, { prefix: "/api/user" });
+  await fastify.register(todoHistoryRouter, { prefix: "/api/todo-history" });
   const PORT = 3443;
   try {
     await fastify.listen({ port: PORT });

@@ -6,8 +6,9 @@ const createTodoSchema = {
     description: { type: "string", minLength: 4, maxLength: 255 },
     priority: { type: "string", enum: ["low", "medium", "high"] },
     deadline: { type: ["string","null"], format: "date-time" },
+    image_url: { type: ["string", "null"] },
   },
-  additionalProperties: false,
+  additionalProperties: false,// không cho phép field ngoài
 };
 
 const updateTodoSchema = {
@@ -18,6 +19,7 @@ const updateTodoSchema = {
     priority: { type: "string", enum: ["low", "medium", "high"] },
     deadline: { type: ["string", "null"], format: "date-time" },
     is_completed: { type: "boolean" },
+    image_url: { type: ["string", "null"] },
   },
   additionalProperties: false,
   minProperties: 1, // bắt buộc phải có ít nhất 1 field để update

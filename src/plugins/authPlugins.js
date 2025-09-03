@@ -1,25 +1,22 @@
 // src/plugins/authPlugins.js
 const fp = require("fastify-plugin");
-const jwt = require("../utils/jwt");
-
-async function authenticate(request, reply) {
-  const authHeader = request.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-
-  if (!token) {
-    return reply.code(401).send({ error: "No token provided" });
-  }
-
-  try {
-    const decoded = jwt.verifyToken(token);
-    request.user = decoded; // gắn user vào request
-  } catch (err) {
-    return reply.code(401).send({ error: "Invalid token" });
-  }
-}
+const fastifyJwt = require("@fastify/jwt");
 
 async function authPlugin(fastify, options) {
-  fastify.decorate("authenticate", authenticate);
+  // Đăng ký fastify-jwt
+  fastify.register(fastifyJwt, {
+    secret: process.env.JWT_SECRET || "your-secret-key",
+    sign: { expiresIn: "1h" },
+  });
+
+  // Middleware authenticate
+  fastify.decorate("authenticate", async function (request, reply) {
+    try {
+      await request.jwtVerify(); // sẽ tự đọc token từ header Authorization: Bearer ...
+    } catch (err) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+  });
 }
 
 module.exports = fp(authPlugin);
