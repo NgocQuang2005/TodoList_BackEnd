@@ -76,6 +76,54 @@ const optimizeImageSize = async (buffer, targetSize, width, height) => {
   return { buffer: bestBuffer, quality: bestQuality };
 };
 
+// Helper function để đảm bảo ảnh luôn dưới 1MB
+const ensureImageUnder1MB = async (buffer) => {
+  const maxSizeInBytes = 1024 * 1024; // 1MB
+  const originalSize = buffer.length;
+  
+  console.log(`Ảnh gốc: ${(originalSize / 1024 / 1024).toFixed(2)}MB`);
+  
+  // Nếu ảnh gốc đã dưới 1MB, chỉ cần convert sang JPEG
+  if (originalSize <= maxSizeInBytes) {
+    const convertedBuffer = await sharp(buffer)
+      .jpeg({ quality: 85, progressive: true })
+      .toBuffer();
+    
+    if (convertedBuffer.length <= maxSizeInBytes) {
+      console.log(`Ảnh sau convert: ${(convertedBuffer.length / 1024 / 1024).toFixed(2)}MB`);
+      return convertedBuffer;
+    }
+  }
+  
+  // Danh sách kích thước để thử từ lớn đến nhỏ
+  const sizesToTry = [
+    { width: 800, height: 600 },   // Large
+    { width: 640, height: 480 },   // Medium
+    { width: 480, height: 360 },   // Small
+    { width: 320, height: 240 },   // Very Small
+    { width: 200, height: 150 },   // Thumbnail
+  ];
+  
+  // Thử từng kích thước
+  for (const size of sizesToTry) {
+    const result = await optimizeImageSize(buffer, maxSizeInBytes, size.width, size.height);
+    
+    if (result.buffer && result.buffer.length <= maxSizeInBytes) {
+      console.log(`Ảnh đã resize: ${size.width}x${size.height}, quality: ${result.quality}, size: ${(result.buffer.length / 1024 / 1024).toFixed(2)}MB`);
+      return result.buffer;
+    }
+  }
+  
+  // Fallback cuối cùng - force resize với quality thấp nhất
+  const fallbackBuffer = await sharp(buffer)
+    .resize(200, 150, { fit: "cover", position: "center" })
+    .jpeg({ quality: 10, progressive: true })
+    .toBuffer();
+    
+  console.log(`Fallback resize: 200x150, quality: 10, size: ${(fallbackBuffer.length / 1024 / 1024).toFixed(2)}MB`);
+  return fallbackBuffer;
+};
+
 const processImage = async (request, reply) => {
   if (
     !request.file ||
@@ -104,41 +152,21 @@ const processImage = async (request, reply) => {
       throw new Error("File ảnh không hợp lệ");
     }
 
-    const maxSizeInBytes = 1024 * 1024; // 1MB
-    let resizedBuffer;
+    // Đảm bảo ảnh luôn dưới 1MB với thuật toán tối ưu
+    const resizedBuffer = await ensureImageUnder1MB(request.file.buffer);
     
-    // Thử với kích thước ban đầu
-    let result = await optimizeImageSize(request.file.buffer, maxSizeInBytes, 200, 200);
+    // Kiểm tra kết quả cuối cùng
+    const finalSize = resizedBuffer.length;
+    const maxSize = 1024 * 1024; // 1MB
     
-    if (result.buffer && result.buffer.length <= maxSizeInBytes) {
-      resizedBuffer = result.buffer;
-    } else {
-      // Nếu vẫn quá lớn, giảm kích thước và thử lại
-      const sizes = [
-        { width: 160, height: 160 },
-        { width: 120, height: 120 },
-        { width: 100, height: 100 }
-      ];
-      
-      for (const size of sizes) {
-        result = await optimizeImageSize(request.file.buffer, maxSizeInBytes, size.width, size.height);
-        if (result.buffer && result.buffer.length <= maxSizeInBytes) {
-          resizedBuffer = result.buffer;
-          break;
-        }
-      }
-      
-      // Fallback cuối cùng
-      if (!resizedBuffer) {
-        resizedBuffer = await sharp(request.file.buffer)
-          .resize(100, 100, { fit: "cover", position: "center" })
-          .jpeg({ quality: 10, progressive: true })
-          .toBuffer();
-      }
+    if (finalSize > maxSize) {
+      console.warn(`Cảnh báo: Ảnh vẫn lớn hơn 1MB: ${(finalSize / 1024 / 1024).toFixed(2)}MB`);
     }
 
     await fs.writeFile(uploadPath, resizedBuffer);
     request.imageUrl = `/uploads/todos/${fileName}`;
+    
+    console.log(`✅ Ảnh đã lưu thành công: ${fileName}, size: ${(finalSize / 1024 / 1024).toFixed(2)}MB`);
   } catch (error) {
     throw new Error("Lỗi xử lý ảnh: " + error.message);
   }
