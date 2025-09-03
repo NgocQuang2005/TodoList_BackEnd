@@ -21,7 +21,12 @@ async function getTodoHistoryByTodoId(todoId) {
     .orderBy("created_at", "desc");
 }
 
+async function deleteTodoHistoryByTodoId(todoId) {
+  return db("TodoHistory").where({ todo_id: todoId }).del();
+}
+
 module.exports = {
   addTodoHistory,
   getTodoHistoryByTodoId,
+  deleteTodoHistoryByTodoId,
 };

@@ -6,6 +6,38 @@ const {
 const addFormats = require("ajv-formats");
 const todoService = require("../services/todoService");
 const { upload, processImage } = require("../middleware/imageUpload");
+
+// Tạo validator instances một lần để tái sử dụng
+const ajv = require("ajv");
+const ajvInstance = new ajv();
+addFormats(ajvInstance);
+const createValidator = ajvInstance.compile(createTodoSchema);
+const updateValidator = ajvInstance.compile(updateTodoSchema);
+
+// Helper function để parse request data
+const parseRequestData = (request) => {
+  if (!request.body) {
+    throw new Error("Missing data");
+  }
+
+  if (request.body.todoData) {
+    try {
+      return JSON.parse(request.body.todoData);
+    } catch (err) {
+      throw new Error("Invalid JSON in todoData");
+    }
+  }
+
+  return request.body;
+};
+// Helper function để validate data
+const validateData = (data, validator, validationType) => {
+  if (!validator(data)) {
+    throw new Error(
+      `${validationType} validation failed: ${JSON.stringify(validator.errors)}`
+    );
+  }
+};
 async function todoRouter(fastify, options) {
   // Lấy tất cả todos của user theo token trả ra từ user đó
   fastify.get("/", {
@@ -55,38 +87,14 @@ async function todoRouter(fastify, options) {
     preHandler: [fastify.authenticate, upload, processImage],
     handler: async (request, reply) => {
       try {
-        let todoData = {};
         console.log("Request body:", request.body);
         console.log("Request file:", request.file ? "File present" : "No file");
-        if (request.body) {
-          if (request.body.todoData) {
-            try {
-              todoData = JSON.parse(request.body.todoData);
-              console.log("Parsed todoData:", todoData);
-            } catch (err) {
-              return reply
-                .code(400)
-                .send({ error: "Invalid JSON in todoData" });
-            }
-          } else {
-            todoData = request.body;
-            console.log("Direct todoData:", todoData);
-          }
-        } else {
-          return reply.code(400).send({ error: "Missing todo data" });
-        }
-        //validate create
-        const ajv = require("ajv");
-        const ajvInstance = new ajv();
-        addFormats(ajvInstance);
-        const validate = ajvInstance.compile(createTodoSchema);
 
-        if (!validate(todoData)) {
-          return reply.code(400).send({
-            error: "Validation failed",
-            details: validate.errors,
-          });
-        }
+        const todoData = parseRequestData(request);
+        console.log("Parsed todoData:", todoData);
+
+        validateData(todoData, createValidator, "Create");
+
         const todo = await todoService.createTodo(
           request.user.id,
           todoData.title,
@@ -114,43 +122,16 @@ async function todoRouter(fastify, options) {
           return reply.code(404).send({ error: "Todo not found" });
         }
 
-        let updateData = {};
-
         console.log("PUT Request body:", request.body);
         console.log(
           "PUT Request file:",
           request.file ? "File present" : "No file"
         );
 
-        if (request.body) {
-          if (request.body.todoData) {
-            try {
-              updateData = JSON.parse(request.body.todoData);
-              console.log("PUT Parsed todoData:", updateData);
-            } catch (err) {
-              return reply.code(400).send({ error: "Invalid JSON in todoData" });
-            }
-          } else {
-            updateData = request.body;
-            console.log("PUT Direct todoData:", updateData);
-          }
-        } else {
-          return reply.code(400).send({ error: "Missing update data" });
-        }
+        const updateData = parseRequestData(request);
+        console.log("PUT Parsed todoData:", updateData);
 
-        // Validate updateData
-        const ajv = require("ajv");
-        const ajvInstance = new ajv();
-        addFormats(ajvInstance);
-        const validate = ajvInstance.compile(updateTodoSchema);
-
-        if (!validate(updateData)) {
-          console.error("PUT Validation errors:", validate.errors);
-          return reply.code(400).send({
-            error: "Validation failed",
-            details: validate.errors,
-          });
-        }
+        validateData(updateData, updateValidator, "Update");
 
         // Nếu có ảnh mới, thêm vào updateData
         if (request.imageUrl) {

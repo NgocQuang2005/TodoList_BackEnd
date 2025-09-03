@@ -5,23 +5,18 @@ const todoHistoryService = require("../services/todoHistoryService");
 async function getTodoById(id) {
   return db("Todos").where({ id }).first();
 }
-async function getTodosByUserWithPagination(
-  userId,
-  page = 1,
-  pageSize = 10,
-  filters = {}
-) {
-  const offset = (page - 1) * pageSize;
-  let query = db("Todos").where({ user_id: userId });
+// Helper function để áp dụng filters
+const applyFilters = (query, filters) => {
+  // Filter theo title
   if (
     filters.title &&
     typeof filters.title === "string" &&
     filters.title.trim()
   ) {
     const searchTerm = filters.title.trim();
-    // Sử dụng whereRaw để xử lý ký tự có dấu an toàn hơn
     query = query.whereRaw("LOWER(title) LIKE LOWER(?)", [`%${searchTerm}%`]);
   }
+
   // Filter theo status
   if (
     filters.status !== null &&
@@ -29,17 +24,19 @@ async function getTodosByUserWithPagination(
     filters.status !== "" &&
     filters.status !== "all"
   ) {
-    let statusValue;
-    if (filters.status === "true" || filters.status === true) {
-      statusValue = true;
-    } else if (filters.status === "false" || filters.status === false) {
-      statusValue = false;
-    }
+    const statusValue =
+      filters.status === "true" || filters.status === true
+        ? true
+        : filters.status === "false" || filters.status === false
+        ? false
+        : undefined;
+
     if (statusValue !== undefined) {
       query = query.where("is_completed", statusValue);
       console.log("Applied status filter:", statusValue);
     }
   }
+
   // Filter theo priority
   if (
     filters.priority !== null &&
@@ -50,6 +47,22 @@ async function getTodosByUserWithPagination(
     query = query.where("priority", filters.priority);
     console.log("Applied priority filter:", filters.priority);
   }
+
+  return query;
+};
+
+async function getTodosByUserWithPagination(
+  userId,
+  page = 1,
+  pageSize = 10,
+  filters = {}
+) {
+  const offset = (page - 1) * pageSize;
+  let query = db("Todos").where({ user_id: userId });
+
+  // Áp dụng filters
+  query = applyFilters(query, filters);
+
   // Lấy dữ liệu theo trang và sắp xếp theo deadline tăng dần
   const todos = await query
     .clone()
@@ -57,8 +70,10 @@ async function getTodosByUserWithPagination(
     .orderBy("deadline", "asc")
     .offset(offset)
     .limit(pageSize);
+
   // Đếm tổng số todos
   const [{ count }] = await query.clone().count("id as count");
+
   return {
     todos,
     pagination: {
@@ -154,10 +169,21 @@ async function updateTodo(id, updates) {
 
 async function deleteTodo(id) {
   const todo = await getTodoById(id);
-  if (todo && todo.image_url) {
+  if (!todo) {
+    throw new Error("Todo không tồn tại");
+  }
+  // Sử dụng transaction để đảm bảo tính nhất quán
+  const result = await db.transaction(async (trx) => {
+    // Xóa các bản ghi liên quan trong TodoHistory trước
+    await trx("TodoHistory").where({ todo_id: id }).del();
+    // Sau đó xóa todo
+    const deleteResult = await trx("Todos").where({ id }).del();
+    return deleteResult;
+  });
+  // Xóa ảnh sau khi transaction thành công
+  if (todo.image_url) {
     await deleteImageFile(todo.image_url);
   }
-  const result = await db("Todos").where({ id }).del();
   return result;
 }
 async function deleteImageFile(imageUrl) {

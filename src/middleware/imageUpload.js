@@ -49,6 +49,33 @@ const upload = async (request, reply) => {
   }
 };
 
+// Helper function để tối ưu ảnh với binary search cho quality
+const optimizeImageSize = async (buffer, targetSize, width, height) => {
+  let minQuality = 10;
+  let maxQuality = 90;
+  let bestBuffer = null;
+  let bestQuality = minQuality;
+
+  // Binary search để tìm quality tối ưu
+  while (minQuality <= maxQuality) {
+    const midQuality = Math.floor((minQuality + maxQuality) / 2);
+    const testBuffer = await sharp(buffer)
+      .resize(width, height, { fit: "cover", position: "center" })
+      .jpeg({ quality: midQuality, progressive: true })
+      .toBuffer();
+
+    if (testBuffer.length <= targetSize) {
+      bestBuffer = testBuffer;
+      bestQuality = midQuality;
+      minQuality = midQuality + 1;
+    } else {
+      maxQuality = midQuality - 1;
+    }
+  }
+
+  return { buffer: bestBuffer, quality: bestQuality };
+};
+
 const processImage = async (request, reply) => {
   if (
     !request.file ||
@@ -69,72 +96,48 @@ const processImage = async (request, reply) => {
       fileName
     );
     await fs.mkdir(path.dirname(uploadPath), { recursive: true });
-    let metadata;
+
+    // Validate image
     try {
-      metadata = await sharp(request.file.buffer).metadata();
+      await sharp(request.file.buffer).metadata();
     } catch (err) {
       throw new Error("File ảnh không hợp lệ");
     }
 
-    let resizedBuffer;
-    let currentQuality = 90;
-    let currentWidth = 200;
-    let currentHeight = 200;
     const maxSizeInBytes = 1024 * 1024; // 1MB
-
-    resizedBuffer = await sharp(request.file.buffer)
-      .resize(currentWidth, currentHeight, { fit: "cover", position: "center" })
-      .jpeg({ quality: currentQuality, progressive: true })
-      .toBuffer();
-
-    while (resizedBuffer.length > maxSizeInBytes && currentQuality > 10) {
-      currentQuality -= 10;
-      resizedBuffer = await sharp(request.file.buffer)
-        .resize(currentWidth, currentHeight, {
-          fit: "cover",
-          position: "center",
-        })
-        .jpeg({ quality: currentQuality, progressive: true })
-        .toBuffer();
-    }
-
-    while (resizedBuffer.length > maxSizeInBytes && currentWidth > 100) {
-      currentWidth = Math.floor(currentWidth * 0.8);
-      currentHeight = Math.floor(currentHeight * 0.8);
-      currentQuality = 70;
-
-      resizedBuffer = await sharp(request.file.buffer)
-        .resize(currentWidth, currentHeight, {
-          fit: "cover",
-          position: "center",
-        })
-        .jpeg({ quality: currentQuality, progressive: true })
-        .toBuffer();
-
-      while (resizedBuffer.length > maxSizeInBytes && currentQuality > 10) {
-        currentQuality -= 10;
+    let resizedBuffer;
+    
+    // Thử với kích thước ban đầu
+    let result = await optimizeImageSize(request.file.buffer, maxSizeInBytes, 200, 200);
+    
+    if (result.buffer && result.buffer.length <= maxSizeInBytes) {
+      resizedBuffer = result.buffer;
+    } else {
+      // Nếu vẫn quá lớn, giảm kích thước và thử lại
+      const sizes = [
+        { width: 160, height: 160 },
+        { width: 120, height: 120 },
+        { width: 100, height: 100 }
+      ];
+      
+      for (const size of sizes) {
+        result = await optimizeImageSize(request.file.buffer, maxSizeInBytes, size.width, size.height);
+        if (result.buffer && result.buffer.length <= maxSizeInBytes) {
+          resizedBuffer = result.buffer;
+          break;
+        }
+      }
+      
+      // Fallback cuối cùng
+      if (!resizedBuffer) {
         resizedBuffer = await sharp(request.file.buffer)
-          .resize(currentWidth, currentHeight, {
-            fit: "cover",
-            position: "center",
-          })
-          .jpeg({ quality: currentQuality, progressive: true })
+          .resize(100, 100, { fit: "cover", position: "center" })
+          .jpeg({ quality: 10, progressive: true })
           .toBuffer();
       }
     }
 
-    if (resizedBuffer.length > maxSizeInBytes) {
-      resizedBuffer = await sharp(request.file.buffer)
-        .resize(Math.max(currentWidth, 100), Math.max(currentHeight, 100), {
-          fit: "cover",
-          position: "center",
-        })
-        .jpeg({ quality: 10, progressive: true })
-        .toBuffer();
-    }
-
     await fs.writeFile(uploadPath, resizedBuffer);
-
     request.imageUrl = `/uploads/todos/${fileName}`;
   } catch (error) {
     throw new Error("Lỗi xử lý ảnh: " + error.message);
