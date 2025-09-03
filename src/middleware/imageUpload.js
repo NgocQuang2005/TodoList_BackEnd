@@ -76,52 +76,30 @@ const optimizeImageSize = async (buffer, targetSize, width, height) => {
   return { buffer: bestBuffer, quality: bestQuality };
 };
 
-// Helper function để đảm bảo ảnh luôn dưới 1MB
-const ensureImageUnder1MB = async (buffer) => {
-  const maxSizeInBytes = 1024 * 1024; // 1MB
+// Helper function đơn giản hóa - Client đã resize về 1MB
+const processClientResizedImage = async (buffer) => {
   const originalSize = buffer.length;
+  console.log(`Ảnh từ client: ${(originalSize / 1024 / 1024).toFixed(2)}MB`);
   
-  console.log(`Ảnh gốc: ${(originalSize / 1024 / 1024).toFixed(2)}MB`);
-  
-  // Nếu ảnh gốc đã dưới 1MB, chỉ cần convert sang JPEG
-  if (originalSize <= maxSizeInBytes) {
-    const convertedBuffer = await sharp(buffer)
-      .jpeg({ quality: 85, progressive: true })
-      .toBuffer();
-    
-    if (convertedBuffer.length <= maxSizeInBytes) {
-      console.log(`Ảnh sau convert: ${(convertedBuffer.length / 1024 / 1024).toFixed(2)}MB`);
-      return convertedBuffer;
-    }
-  }
-  
-  // Danh sách kích thước để thử từ lớn đến nhỏ
-  const sizesToTry = [
-    { width: 800, height: 600 },   // Large
-    { width: 640, height: 480 },   // Medium
-    { width: 480, height: 360 },   // Small
-    { width: 320, height: 240 },   // Very Small
-    { width: 200, height: 150 },   // Thumbnail
-  ];
-  
-  // Thử từng kích thước
-  for (const size of sizesToTry) {
-    const result = await optimizeImageSize(buffer, maxSizeInBytes, size.width, size.height);
-    
-    if (result.buffer && result.buffer.length <= maxSizeInBytes) {
-      console.log(`Ảnh đã resize: ${size.width}x${size.height}, quality: ${result.quality}, size: ${(result.buffer.length / 1024 / 1024).toFixed(2)}MB`);
-      return result.buffer;
-    }
-  }
-  
-  // Fallback cuối cùng - force resize với quality thấp nhất
-  const fallbackBuffer = await sharp(buffer)
-    .resize(200, 150, { fit: "cover", position: "center" })
-    .jpeg({ quality: 10, progressive: true })
+  // Client đã resize, chỉ cần convert sang JPEG với quality tốt
+  const processedBuffer = await sharp(buffer)
+    .jpeg({ quality: 90, progressive: true })
     .toBuffer();
     
-  console.log(`Fallback resize: 200x150, quality: 10, size: ${(fallbackBuffer.length / 1024 / 1024).toFixed(2)}MB`);
-  return fallbackBuffer;
+  const finalSize = processedBuffer.length;
+  console.log(`Ảnh sau xử lý: ${(finalSize / 1024 / 1024).toFixed(2)}MB`);
+  
+  // Nếu vẫn > 1MB (trường hợp hiếm), áp dụng compression nhẹ
+  if (finalSize > 1024 * 1024) {
+    const compressedBuffer = await sharp(buffer)
+      .jpeg({ quality: 75, progressive: true })
+      .toBuffer();
+    
+    console.log(`Ảnh sau nén: ${(compressedBuffer.length / 1024 / 1024).toFixed(2)}MB`);
+    return compressedBuffer;
+  }
+  
+  return processedBuffer;
 };
 
 const processImage = async (request, reply) => {
@@ -152,21 +130,13 @@ const processImage = async (request, reply) => {
       throw new Error("File ảnh không hợp lệ");
     }
 
-    // Đảm bảo ảnh luôn dưới 1MB với thuật toán tối ưu
-    const resizedBuffer = await ensureImageUnder1MB(request.file.buffer);
-    
-    // Kiểm tra kết quả cuối cùng
-    const finalSize = resizedBuffer.length;
-    const maxSize = 1024 * 1024; // 1MB
-    
-    if (finalSize > maxSize) {
-      console.warn(`Cảnh báo: Ảnh vẫn lớn hơn 1MB: ${(finalSize / 1024 / 1024).toFixed(2)}MB`);
-    }
+    // Xử lý ảnh đã được client resize
+    const processedBuffer = await processClientResizedImage(request.file.buffer);
 
-    await fs.writeFile(uploadPath, resizedBuffer);
+    await fs.writeFile(uploadPath, processedBuffer);
     request.imageUrl = `/uploads/todos/${fileName}`;
     
-    console.log(`✅ Ảnh đã lưu thành công: ${fileName}, size: ${(finalSize / 1024 / 1024).toFixed(2)}MB`);
+    console.log(`✅ Ảnh đã lưu thành công: ${fileName}, size: ${(processedBuffer.length / 1024 / 1024).toFixed(2)}MB`);
   } catch (error) {
     throw new Error("Lỗi xử lý ảnh: " + error.message);
   }

@@ -7,7 +7,9 @@ async function startServer() {
   // Middleware body parser đã tích hợp sẵn trong Fastify
   await fastify.register(require('@fastify/multipart'), {
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB
+      fileSize: 2 * 1024 * 1024, // 2MB - Client đã resize về 1MB, để buffer nhỏ
+      files: 1, // Chỉ cho phép 1 file per request
+      fieldSize: 1024 * 1024, // 1MB cho text fields
     }
   });
   await fastify.register(require("@fastify/cors"), {

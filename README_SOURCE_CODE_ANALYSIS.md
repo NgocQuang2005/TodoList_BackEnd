@@ -46,7 +46,11 @@ const path = require('path');
 async function registerPlugins(fastify) {
   await fastify.register(require("./src/plugins/authPlugins"));
   await fastify.register(require('@fastify/multipart'), {
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+    limits: {
+      fileSize: 2 * 1024 * 1024, // 2MB - Client đã resize về 1MB
+      files: 1, // Chỉ cho phép 1 file per request
+      fieldSize: 1024 * 1024, // 1MB cho text fields
+    }
   });
   await fastify.register(require("@fastify/cors"), {
     origin: "*",
@@ -61,9 +65,27 @@ async function registerPlugins(fastify) {
 
 **Giải thích từng plugin:**
 1. **authPlugins**: Plugin tự tạo để xử lý JWT authentication
-2. **@fastify/multipart**: Xử lý file upload với giới hạn 10MB
+2. **@fastify/multipart**: Xử lý file upload với các giới hạn:
+   - **fileSize: 2MB**: Client đã resize về 1MB, buffer nhỏ cho hiệu suất
+   - **files: 1**: Chỉ cho phép 1 file per request (bảo mật)
+   - **fieldSize: 1MB**: Giới hạn kích thước text fields
 3. **@fastify/cors**: Cho phép CORS từ mọi origin
 4. **@fastify/static**: Serve static files từ thư mục public
+
+### Tối Ưu Cho Client-Side Resize
+
+**Lợi ích khi client đã resize:**
+- **Faster upload**: File 1MB upload nhanh hơn nhiều so với file lớn
+- **Less server processing**: Server chỉ cần optimize nhẹ thay vì resize mạnh
+- **Better UX**: User thấy kết quả nhanh hơn, ít loading time
+- **Resource efficient**: Tiết kiệm CPU, memory và bandwidth server
+- **Reduced complexity**: Logic server đơn giản hơn, ít edge cases
+
+**Luồng xử lý tối ưu:**
+```
+Client resize → ~1MB → Server nhận (≤ 2MB ✓) → 
+Optimize quality → Lưu ~1MB
+```
 
 ### Function registerRouters()
 ```javascript
